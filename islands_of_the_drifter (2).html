@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Islands of the Drifter - โรงเรียนวีรสุนทร</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Mali:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body, html { 
+            margin: 0; padding: 0; overflow: hidden; 
+            font-family: 'Mali', cursive; background-color: #87CEEB; 
+            touch-action: none; 
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        canvas { display: block; width: 100vw; height: 100vh; touch-action: none; outline: none; }
+        
+        .fraction { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; line-height: 1; }
+        .fraction-line { border-bottom: 3px solid currentColor; padding-bottom: 2px; margin-bottom: 2px; }
+        .input-box { width: 65px; text-align: center; border: 3px solid #cbd5e1; border-radius: 12px; font-size: 1.8rem; outline: none; transition: all 0.2s; color: #1e293b; }
+        .input-box:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3); }
+
+        .toast {
+            position: absolute; top: env(safe-area-inset-top, 80px); left: 50%; transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85); color: white; padding: 12px 24px;
+            border-radius: 30px; font-weight: bold; z-index: 60; opacity: 0;
+            transition: opacity 0.3s; pointer-events: none; border: 2px solid #fff;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4); text-align: center; white-space: nowrap;
+        }
+
+        #joystickZone {
+            position: absolute; bottom: calc(30px + env(safe-area-inset-bottom)); left: calc(30px + env(safe-area-inset-left)); 
+            width: 140px; height: 140px; background: rgba(255, 255, 255, 0.15); border: 4px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%; display: none; z-index: 20; touch-action: none; backdrop-filter: blur(4px);
+        }
+        #joystickStick {
+            position: absolute; top: 50%; left: 50%; width: 60px; height: 60px;
+            background: rgba(255, 255, 255, 0.9); border: 2px solid #3b82f6; border-radius: 50%;
+            margin-top: -30px; margin-left: -30px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            pointer-events: none; transition: transform 0.1s ease-out;
+        }
+        
+        @media (max-width: 768px) {
+            .input-box { width: 50px; font-size: 1.4rem; height: 45px; }
+            .fraction.text-5xl { font-size: 2.2rem; }
+            .text-7xl { font-size: 3.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- UI Overlay (HUD) -->
+    <div class="absolute top-0 left-0 w-full p-3 md:p-6 pointer-events-none flex justify-between items-start z-10 text-white drop-shadow-md pb-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+        <div class="flex flex-col items-start gap-1 md:gap-2">
+            <h1 class="text-lg md:text-3xl font-black tracking-wider text-yellow-300 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">Islands of the Drifter</h1>
+            <p class="text-xs md:text-lg bg-black/60 px-3 py-1.5 md:px-4 md:py-2 rounded-full backdrop-blur-sm border border-white/20">
+                พื้นที่: <span id="biomeName" class="font-bold text-green-300">ปกติ (Grass)</span>
+            </p>
+            <p class="text-xs md:text-xl font-bold bg-blue-900/80 px-3 py-1.5 md:px-4 md:py-2 rounded-xl mt-1 md:mt-2 border-2 border-blue-400">
+                🔍 แท่นพลังงาน: <span id="terminalProgress" class="text-yellow-400 font-black">0 / 1</span>
+            </p>
+            <p class="text-xs md:text-lg font-bold bg-purple-900/80 px-3 py-1.5 md:px-4 md:py-2 rounded-xl mt-1 border-2 border-purple-400">
+                🔎 แว่นขยาย: <span id="magnifierCount" class="text-purple-300 font-black">0 / 5</span>
+            </p>
+        </div>
+        <div class="text-right flex flex-col items-end gap-1 md:gap-2 pointer-events-auto">
+            <div class="bg-black/60 px-3 py-1.5 md:px-4 md:py-2 rounded-2xl backdrop-blur-sm border border-white/20 text-center">
+                <p class="text-[10px] md:text-xs text-gray-300 mb-1">พลังชีวิต</p>
+                <div id="healthDisplay" class="text-xs md:text-2xl tracking-widest text-red-500">❤️❤️❤️❤️❤️</div>
+            </div>
+            <div class="bg-black/60 px-3 py-1.5 md:px-4 md:py-2 rounded-2xl backdrop-blur-sm border border-white/20 text-center">
+                <p class="text-[10px] md:text-xs text-gray-300">เกาะที่ผ่านแล้ว</p>
+                <p class="text-lg md:text-3xl font-black text-blue-300"><span id="islandCount">0</span></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toastMsg" class="toast mt-10">ได้รับไอเทม!</div>
+
+    <!-- Bridge Ready Hint -->
+    <div id="bridgeReadyHint" class="absolute bottom-1/4 left-1/2 -translate-x-1/2 pointer-events-none text-white bg-green-600/90 px-6 py-4 rounded-3xl backdrop-blur-sm text-center border-4 border-green-300 animate-bounce transition-opacity duration-500 hidden z-10 shadow-2xl">
+        <h3 class="text-xl md:text-2xl font-black mb-1">สะพานเปิดแล้ว!</h3>
+        <p class="text-sm md:text-lg" id="exitDirText">จงเดินไปที่ประตูทางออก</p>
+    </div>
+
+    <!-- Virtual Joystick -->
+    <div id="joystickZone"><div id="joystickStick"></div></div>
+
+    <!-- Tutorial / Start Screen -->
+    <div id="startScreen" class="absolute inset-0 bg-blue-900/95 backdrop-blur-md flex items-center justify-center z-50 transition-opacity duration-500 overflow-y-auto px-4 py-8">
+        <div class="bg-white p-6 md:p-8 rounded-3xl text-gray-800 text-center w-full max-w-lg shadow-2xl border-8 border-blue-400">
+            <h1 class="text-3xl md:text-4xl font-black mb-2 text-blue-600 drop-shadow-sm leading-tight">Islands of the Drifter</h1>
+            <p class="mb-4 text-sm md:text-lg text-gray-700 font-bold">ภารกิจแปลงร่าง: จำนวนคละ & เศษเกิน</p>
+            
+            <div class="grid grid-cols-1 gap-3 mb-6 text-xs md:text-sm text-left bg-blue-50 p-4 rounded-xl border-2 border-blue-100 h-64 overflow-y-auto">
+                <div class="font-black text-blue-800 text-base border-b-2 border-blue-200 pb-1">📚 วิธีการเล่น</div>
+                <div class="flex items-start gap-2">
+                    <span class="text-xl">🕹️</span>
+                    <p><b>บังคับตัวละคร:</b> ใช้ปุ่ม W A S D / ลูกศรบนคีย์บอร์ด หรือ สัมผัสจอยสติ๊กบนหน้าจอ</p>
+                </div>
+                <div class="flex items-start gap-2">
+                    <span class="text-xl">🎯</span>
+                    <p><b>เป้าหมาย:</b> เดินสำรวจหา <span class="text-yellow-600 font-bold">แท่นเรืองแสง</span> ให้ครบ แล้วตอบคำถามแปลงเลขให้ถูกต้อง ประตูถึงจะเปิด</p>
+                </div>
+                <div class="flex items-start gap-2">
+                    <span class="text-xl">⚠️</span>
+                    <p><b>อันตราย:</b> ระวังเดินตกเกาะ เหยียบหลุมลาวา หรือหนามแหลม <span class="text-red-500 font-bold">เลือดจะลด!</span></p>
+                </div>
+                <div class="flex items-start gap-2">
+                    <span class="text-xl">🎁</span>
+                    <p><b>ตัวช่วย:</b> หีบสมบัติอาจซ่อน ยาฟื้นฟู(❤️) หรือ แว่นขยาย(🔎) สำหรับข้ามด่านที่ยากเกินไป</p>
+                </div>
+            </div>
+            
+            <button onclick="startGame()" class="pointer-events-auto bg-gradient-to-r from-green-400 to-blue-500 text-white px-8 py-4 rounded-full font-black text-xl md:text-2xl hover:scale-105 transition shadow-[0_4px_15px_rgba(59,130,246,0.5)] active:scale-95 w-full cursor-pointer mb-4">
+                เริ่มผจญภัย!
+            </button>
+            <div class="text-xs md:text-sm text-gray-400 font-bold">พัฒนาโดย ครูนวสิน ศรีศิริทรัพย์</div>
+        </div>
+    </div>
+
+    <!-- Puzzle Modal -->
+    <div id="puzzleModal" class="absolute inset-0 bg-black/85 backdrop-blur-md hidden items-center justify-center z-40 overflow-y-auto px-2">
+        <div id="puzzleBox" class="bg-white p-4 md:p-8 rounded-3xl w-full max-w-xl shadow-2xl border-8 border-yellow-400 flex flex-col items-center transition-colors duration-300 relative">
+            <h2 class="text-xl md:text-3xl font-black text-center text-indigo-700 mb-2 mt-2">✨ ปลดล็อกแท่นพลังงาน ✨</h2>
+            <p class="text-center text-gray-600 mb-4 font-bold text-sm md:text-lg" id="puzzleInstruction">จงแปลงร่างตัวเลขนี้ให้ถูกต้อง</p>
+            
+            <div id="puzzleContent" class="flex justify-center items-center gap-2 md:gap-6 text-2xl md:text-4xl text-gray-800 font-bold mb-6 bg-gray-50 p-4 md:p-6 rounded-2xl border-2 border-gray-200 w-full overflow-x-auto">
+                <!-- Injected via JS -->
+            </div>
+
+            <!-- Buttons (Hidden initially, shown on wrong answer) -->
+            <div id="helperButtons" class="mb-4 w-full flex flex-col md:flex-row gap-2 justify-center hidden">
+                <button id="btnHint" onclick="toggleHint()" class="text-sm bg-yellow-100 text-yellow-800 px-4 py-3 rounded-full font-bold hover:bg-yellow-200 transition shadow w-full md:w-auto cursor-pointer">
+                    💡 ขอคำใบ้ (เหลือ 5 ครั้ง)
+                </button>
+                <button id="btnAutoSolve" onclick="useMagnifier()" class="hidden text-sm bg-purple-600 text-white px-4 py-3 rounded-full font-bold hover:bg-purple-700 transition shadow w-full md:w-auto animate-pulse cursor-pointer">
+                    🔎 ใช้แว่นขยายข้ามด่าน
+                </button>
+            </div>
+            
+            <div id="hintText" class="hidden w-full mb-4 p-3 bg-orange-50 border-2 border-orange-200 rounded-xl text-gray-700 text-center text-xs md:text-sm shadow-inner"></div>
+
+            <button onclick="checkAnswer()" class="w-full bg-gradient-to-r from-green-400 to-green-600 text-white py-3 md:py-4 rounded-2xl font-black text-xl md:text-2xl hover:scale-105 transition shadow-[0_4px_15px_rgba(34,197,94,0.4)] active:scale-95 cursor-pointer mt-2">
+                ร่ายเวทมนตร์!
+            </button>
+        </div>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div id="gameOverModal" class="absolute inset-0 bg-gray-900/95 backdrop-blur-md hidden items-center justify-center z-50 overflow-y-auto px-4">
+        <div class="bg-white p-6 md:p-8 rounded-3xl text-center max-w-md w-full shadow-2xl border-8 border-blue-300 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full bg-blue-700 text-white py-2 font-black tracking-widest text-xs md:text-sm uppercase">
+                โรงเรียนวีรสุนทร
+            </div>
+            <div class="text-5xl md:text-7xl mb-2 mt-8 md:mt-12">🎓</div>
+            
+            <!-- Rank Title Injection -->
+            <h3 id="rcTitle" class="text-xl md:text-2xl font-black text-purple-600 mb-1 drop-shadow-sm">นักสำรวจฝึกหัด</h3>
+            <h2 class="text-lg md:text-xl font-bold mb-4 text-gray-500">สรุปผลการสำรวจ</h2>
+            
+            <div class="bg-blue-50 p-4 md:p-6 rounded-2xl mb-6 space-y-3 text-left border-2 border-blue-100 text-sm md:text-base">
+                <div class="flex justify-between items-center border-b border-gray-200 pb-2">
+                    <span class="text-gray-700 font-bold">🏝️ เกาะที่ผ่านได้:</span>
+                    <span class="text-xl font-black text-blue-600" id="rcIslands">0</span>
+                </div>
+                <div class="flex justify-between items-center border-b border-gray-200 pb-2">
+                    <span class="text-gray-700 font-bold">✅ ปริศนาที่แก้ได้:</span>
+                    <span class="text-xl font-black text-green-600" id="rcCorrect">0</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-700 font-bold">❌ พลาดโดนโจมตี:</span>
+                    <span class="text-xl font-black text-red-500" id="rcWrong">0</span>
+                </div>
+            </div>
+            <button onclick="location.reload()" class="w-full bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-lg md:text-xl hover:bg-blue-700 transition shadow-lg active:scale-95 cursor-pointer">
+                🔄 เล่นใหม่อีกครั้ง
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- 50 UNIQUE TITLES ---
+        const TITLES = [
+            "นักสำรวจฝึกหัด", "ผู้เริ่มต้นแห่งเกาะลอยฟ้า", "นักเรียนรู้เศษส่วน", "ผู้ค้นพบความลับจำนวนคละ", "ลูกเสือคณิตศาสตร์",
+            "ผู้กล้าแห่งตัวเศษ", "นักผจญภัยตัวส่วน", "นักเดินทางสายคำนวณ", "ผู้ก้าวข้ามกังหันลม", "ผู้พิชิตหารยาวหาบอส",
+            "ผู้พิทักษ์เศษเกิน", "นักเวทย์ฝึกหัด", "นักเวทย์เศษส่วน", "ผู้ใช้มนตราจำนวนคละ", "จอมเวทย์แห่งการแปลงร่าง",
+            "อัศวินพเนจร", "อัศวินแห่งตัวเลข", "ผู้พิทักษ์ตรรกะ", "ผู้บัญชาการสมการ", "ขุนพลเศษส่วนแท้",
+            "นักปราชญ์แห่งเกาะเวทมนตร์", "นักปราชญ์จำนวนเต็ม", "ผู้หยั่งรู้คณิตศาสตร์", "ปรมาจารย์สายล่องลอย", "ปรมาจารย์แห่งการแบ่งปัน",
+            "วีรบุรุษนักคำนวณ", "ผู้ชี้นำตัวเลข", "ผู้ครอบครองเศษเกิน", "ผู้นำทางจำนวนคละ", "จอมขมังเวทย์คณิตศาสตร์",
+            "ผู้ควบคุมกาลเวลาแห่งตัวเลข", "ราชันย์นักสำรวจ", "ราชันย์แห่งเกาะลอยฟ้า", "จักรพรรดิเศษส่วน", "จักรพรรดิจำนวนคละ",
+            "ผู้พิทักษ์แสงสว่างแห่งปัญญา", "ผู้อยู่เหนือสมการ", "จอมราชันย์เวทมนตร์คณิตศาสตร์", "ผู้เปิดประตูมิติเศษส่วน", "ผู้สร้างตำนานกังหันลม",
+            "เทพแห่งการคำนวณ", "มหาเทพเศษเกิน", "ผู้พิทักษ์ระดับตำนาน", "ผู้ก้าวล่วงขีดจำกัด", "ผู้หยั่งรู้ความลับจักรวาล",
+            "ตำนานที่ยังมีลมหายใจ", "ผู้พิทักษ์สูงสุดแห่งตัวเลข", "มหาจักรพรรดิแห่งการเรียนรู้", "แสงสว่างแห่งโรงเรียนวีรสุนทร", "ตำนานอัศวินจำนวนคละแห่งโรงเรียนวีรสุนทร!"
+        ];
+
+        // --- DATA & CONFIG (9 Biomes) ---
+        const BIOMES = [
+            { id: 'grass', name: "ป่าหญ้า", bg: 0x56CCF2, ground: 0x7ED321, decor: 'pine', ped: 0xF2C94C, decorColor: 0x27AE60, physics: { accel: 0.02, friction: 0.85, maxSpeed: 0.25, bob: 0.3 } },
+            { id: 'ice', name: "ทุ่งน้ำแข็ง (ลื่น)", bg: 0xBB6BD9, ground: 0xFAFAFA, decor: 'pine', ped: 0xEB5757, decorColor: 0xE0E0E0, physics: { accel: 0.006, friction: 0.97, maxSpeed: 0.28, bob: 0.2 } },
+            { id: 'sand', name: "ทะเลทราย (หนืด)", bg: 0xF2C94C, ground: 0xD35400, decor: 'cactus', ped: 0x56CCF2, decorColor: 0xA04000, physics: { accel: 0.03, friction: 0.65, maxSpeed: 0.15, bob: 0.1 } },
+            { id: 'crystal', name: "ศิลาคริสตัล (เด้ง)", bg: 0x0F2027, ground: 0x2C5364, decor: 'crystal', ped: 0x00FF87, decorColor: 0x20BDFF, physics: { accel: 0.02, friction: 0.85, maxSpeed: 0.22, bob: 1.0 } },
+            { id: 'mountain', name: "ยอดเขาสูง", bg: 0x95A5A6, ground: 0x7F8C8D, decor: 'rocky_mountain', ped: 0xE74C3C, decorColor: 0xBDC3C7, physics: { accel: 0.02, friction: 0.85, maxSpeed: 0.22, bob: 0.3 } },
+            { id: 'farm', name: "ฟาร์มแสนสุข", bg: 0x87CEEB, ground: 0xA9DFBF, decor: 'crop', ped: 0xF39C12, decorColor: 0xD4EFDF, physics: { accel: 0.02, friction: 0.85, maxSpeed: 0.25, bob: 0.3 } },
+            { id: 'sea', name: "ชายหาด", bg: 0x6DD5FA, ground: 0xF5DEB3, decor: 'palm', ped: 0x2980B9, decorColor: 0x3498DB, physics: { accel: 0.03, friction: 0.70, maxSpeed: 0.18, bob: 0.15 } },
+            { id: 'city', name: "มหานคร", bg: 0x2C3E50, ground: 0x34495E, decor: 'building', ped: 0xF1C40F, decorColor: 0x95A5A6, physics: { accel: 0.025, friction: 0.80, maxSpeed: 0.24, bob: 0.2 } },
+            { id: 'village', name: "หมู่บ้าน", bg: 0x82E0AA, ground: 0x7DCEA0, decor: 'house', ped: 0x8E44AD, decorColor: 0xE74C3C, physics: { accel: 0.02, friction: 0.85, maxSpeed: 0.25, bob: 0.3 } }
+        ];
+
+        const DIRS = [
+            { id: 'N', name: 'ทิศเหนือ (N)', dx: 0, dz: -1 },
+            { id: 'E', name: 'ทิศตะวันออก (E)', dx: 1, dz: 0 },
+            { id: 'S', name: 'ทิศใต้ (S)', dx: 0, dz: 1 },
+            { id: 'W', name: 'ทิศตะวันตก (W)', dx: -1, dz: 0 }
+        ];
+
+        let health = 5;
+        let inventory = { magnifiers: 0 };
+        const MAX_MAGNIFIERS = 5;
+        let globalHintQuota = 5; 
+        let currentPuzzleWrong = false; 
+        
+        let islandsExplored = 0;
+        let isPaused = true;
+        let isInvincible = false;
+        let stats = { correct: 0, wrong: 0 };
+        
+        const ISLAND_RADIUS = 35;
+        const PLAYER_RADIUS = 0.7;
+        let playerVel = { x: 0, z: 0 };
+        
+        let currentBiome = BIOMES[0]; 
+        let exitDir = DIRS[0];
+        
+        let obstacles = []; 
+        let hazards = []; 
+        let chests = [];
+        let terminals = []; 
+        let totalTerminals = 1;
+        let terminalsSolved = 0;
+        let activeTerminalIndex = -1;
+        let currentPuzzle = null;
+
+        let scene, camera, renderer, player, playerModel, currentIslandGroup, bridgeMesh, exitGateMesh;
+        let keys = {};
+        let audioCtx;
+        let idleTimer;
+
+        // --- IDLE TIMER (5 mins) ---
+        function resetIdleTimer() {
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => { location.reload(); }, 300000); 
+        }
+        ['mousemove', 'keydown', 'touchstart'].forEach(evt => window.addEventListener(evt, resetIdleTimer, { passive: true }));
+
+        // --- JOYSTICK ---
+        const joyZone = document.getElementById('joystickZone');
+        const joyStick = document.getElementById('joystickStick');
+        let joyVector = { x: 0, y: 0 };
+        function initTouch() {
+            if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+                joyZone.style.display = 'block';
+                joyZone.addEventListener('touchstart', handleTouch, { passive: false });
+                joyZone.addEventListener('touchmove', handleTouch, { passive: false });
+                joyZone.addEventListener('touchend', resetJoystick, { passive: false });
+                joyZone.addEventListener('touchcancel', resetJoystick, { passive: false });
+            }
+        }
+        function handleTouch(e) {
+            e.preventDefault(); if(isPaused) return;
+            const touch = e.targetTouches[0]; if (!touch) return;
+            const rect = joyZone.getBoundingClientRect();
+            let dx = touch.clientX - (rect.left + rect.width / 2);
+            let dy = touch.clientY - (rect.top + rect.height / 2);
+            const maxR = rect.width / 2 - 10;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist > maxR) { dx = (dx/dist)*maxR; dy = (dy/dist)*maxR; }
+            joyStick.style.transition = 'none'; joyStick.style.transform = `translate(${dx}px, ${dy}px)`;
+            joyVector.x = dx / maxR; joyVector.y = dy / maxR;
+        }
+        function resetJoystick(e) {
+            if(e && e.cancelable) e.preventDefault();
+            joyStick.style.transition = 'transform 0.1s ease-out'; joyStick.style.transform = `translate(0px, 0px)`;
+            joyVector = { x: 0, y: 0 };
+        }
+
+        // --- AUDIO ---
+        function initAudio() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+        function playSound(type) {
+            if(!audioCtx) return;
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination); const now = audioCtx.currentTime;
+            
+            if (type === 'success') {
+                osc.type = 'square'; osc.frequency.setValueAtTime(659.25, now); osc.frequency.setValueAtTime(1046.50, now + 0.1); 
+                gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3); osc.start(now); osc.stop(now + 0.3);
+            } else if (type === 'wrong' || type === 'hurt') {
+                osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(80, now + 0.4);
+                gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4); osc.start(now); osc.stop(now + 0.4);
+            } else if (type === 'bridge') {
+                osc.type = 'sine'; osc.frequency.setValueAtTime(440, now); osc.frequency.linearRampToValueAtTime(880, now + 1.0); 
+                gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(0.3, now+0.5); gain.gain.linearRampToValueAtTime(0, now+1.5); osc.start(now); osc.stop(now+1.5);
+            } else if (type === 'chest') {
+                osc.type = 'triangle'; osc.frequency.setValueAtTime(880, now); osc.frequency.setValueAtTime(1108.73, now + 0.1); osc.frequency.setValueAtTime(1318.51, now + 0.2);
+                gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now+0.5); osc.start(now); osc.stop(now+0.5);
+            }
+        }
+
+        // --- THREE.JS SETUP ---
+        function init3D() {
+            scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x56CCF2, 0.012);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 20, 25);
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+            dirLight.position.set(30, 50, 30); dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048; dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.left = -45; dirLight.shadow.camera.right = 45;
+            dirLight.shadow.camera.top = 45; dirLight.shadow.camera.bottom = -45;
+            scene.add(dirLight);
+
+            // Player Robot
+            player = new THREE.Group(); playerModel = new THREE.Group(); 
+            const body = new THREE.Mesh(new THREE.SphereGeometry(0.7, 32, 32), new THREE.MeshToonMaterial({ color: 0x3b82f6 })); body.position.y = 0.7; body.castShadow = true;
+            const head = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 1.1), new THREE.MeshToonMaterial({ color: 0xffe0bd })); head.position.y = 1.6; head.castShadow = true;
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), eyeMat); eyeR.position.set(0.25, 1.7, 0.56);
+            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), eyeMat); eyeL.position.set(-0.25, 1.7, 0.56);
+            playerModel.add(body, head, eyeR, eyeL); player.add(playerModel); scene.add(player);
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+            document.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+            document.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+            initTouch(); generateLevel(true); animate();
+        }
+
+        function createDecoration(type, colorHex) {
+            const group = new THREE.Group(); const mat = new THREE.MeshToonMaterial({color: colorHex}); let rad = 1.5;
+            if (type === 'pine') {
+                const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 2.5), new THREE.MeshToonMaterial({color: 0x795548})); trunk.position.y = 1.25; trunk.castShadow = true;
+                const leaf1 = new THREE.Mesh(new THREE.ConeGeometry(2.5, 3.5, 8), mat); leaf1.position.y = 3; leaf1.castShadow = true;
+                const leaf2 = new THREE.Mesh(new THREE.ConeGeometry(1.8, 2.5, 8), mat); leaf2.position.y = 5; leaf2.castShadow = true;
+                group.add(trunk, leaf1, leaf2); rad = 1.8;
+            } else if (type === 'cactus') {
+                const main = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 4, 12), mat); main.position.y = 2; main.castShadow = true;
+                const arm1 = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5, 12), mat); arm1.position.set(1, 2, 0); arm1.rotation.z = Math.PI/4; arm1.castShadow = true;
+                group.add(main, arm1); rad = 1.0;
+            } else if (type === 'crystal') {
+                const cry = new THREE.Mesh(new THREE.OctahedronGeometry(1, 0), mat); cry.position.y = 2; cry.scale.set(1.2, 4, 1.2); cry.castShadow = true;
+                group.add(cry); rad = 1.2;
+            } else if (type === 'rocky_mountain') {
+                const rock1 = new THREE.Mesh(new THREE.DodecahedronGeometry(2.5), mat); rock1.position.y = 1.5; rock1.castShadow = true;
+                const rock2 = new THREE.Mesh(new THREE.TetrahedronGeometry(3), new THREE.MeshToonMaterial({color: 0x6c7a89})); rock2.position.set(2, 1.5, -1); rock2.rotation.y = Math.PI/4; rock2.castShadow = true;
+                group.add(rock1, rock2); rad = 2.8;
+            } else if (type === 'crop') {
+                const dirt = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.4, 4.5), new THREE.MeshToonMaterial({color: 0x8D6E63})); dirt.position.y = 0.2; dirt.receiveShadow = true;
+                group.add(dirt); rad = 2.2;
+            } else if (type === 'palm') {
+                const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 5), new THREE.MeshToonMaterial({color: 0xA0522D})); trunk.position.y = 2.5; trunk.castShadow = true;
+                group.add(trunk); rad = 1.0;
+            } else if (type === 'building' || type === 'house') {
+                const bldg = new THREE.Mesh(new THREE.BoxGeometry(4, 5, 4), mat); bldg.position.y = 2.5; bldg.castShadow = true;
+                group.add(bldg); rad = 2.5;
+            }
+            const s = 0.8 + Math.random()*0.5; group.scale.setScalar(s);
+            return { group, radius: rad * s };
+        }
+
+        function createTrap(type) {
+            const group = new THREE.Group(); let rad = 1.8;
+            const holeBase = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, 0.05, 32), new THREE.MeshBasicMaterial({color: 0x111111}));
+            holeBase.position.y = 0.025; 
+            group.add(holeBase);
+
+            if(type === 'lava') {
+                const lava = new THREE.Mesh(new THREE.CylinderGeometry(rad*0.85, rad*0.85, 0.06, 32), new THREE.MeshBasicMaterial({color: 0xff4500}));
+                lava.position.y = 0.03;
+                group.add(lava);
+            } else {
+                const mat = new THREE.MeshToonMaterial({color: 0xaaaaaa});
+                for(let i=0; i<6; i++) {
+                    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.25, 1.2, 5), mat);
+                    spike.position.set((Math.random()-0.5)*rad*1.2, 0.6, (Math.random()-0.5)*rad*1.2);
+                    group.add(spike);
+                }
+            }
+            return { group, radius: rad, type: type };
+        }
+
+        function createChest() {
+            const group = new THREE.Group(); const mat = new THREE.MeshToonMaterial({color: 0x8b4513});
+            const base = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1, 1.2), mat); base.position.y = 0.5; base.castShadow = true;
+            const lidGroup = new THREE.Group(); lidGroup.position.set(0, 1, -0.6); 
+            const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 1.6, 16, 1, false, 0, Math.PI), mat);
+            lid.rotation.z = Math.PI/2; lid.position.set(0, 0, 0.6); lid.castShadow = true;
+            const lock = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.2), new THREE.MeshToonMaterial({color: 0xffd700})); lock.position.set(0, 0, 1.2);
+            lidGroup.add(lid, lock); group.add(base, lidGroup);
+            return { group, radius: 1.2, lidGroup };
+        }
+
+        function checkSpawnCollision(tx, tz, reqRad) {
+            if(Math.sqrt(tx*tx + tz*tz) < 10) return true; 
+            let dot = tx * exitDir.dx + tz * exitDir.dz;
+            let perp = tx * exitDir.dz - tz * exitDir.dx;
+            if(dot > 15 && Math.abs(perp) < 5) return true; 
+            
+            for(let o of obstacles) {
+                if(Math.sqrt((tx-o.x)**2 + (tz-o.z)**2) < reqRad + o.radius + 1) return true;
+            }
+            for(let h of hazards) {
+                if(Math.sqrt((tx-h.x)**2 + (tz-h.z)**2) < reqRad + h.radius + 1) return true;
+            }
+            return false;
+        }
+
+        function generateLevel(isFirst = false) {
+            if (currentIslandGroup) scene.remove(currentIslandGroup);
+            
+            currentBiome = isFirst ? BIOMES[0] : BIOMES[Math.floor(Math.random() * BIOMES.length)];
+            exitDir = DIRS[Math.floor(Math.random() * DIRS.length)];
+            
+            scene.background = new THREE.Color(currentBiome.bg); scene.fog.color.setHex(currentBiome.bg);
+            document.getElementById('biomeName').innerText = currentBiome.name;
+            document.getElementById('biomeName').style.color = '#' + currentBiome.ped.toString(16).padStart(6, '0');
+            
+            totalTerminals = Math.min(1 + Math.floor(islandsExplored/2), 5);
+            terminalsSolved = 0; updateProgressUI();
+            
+            obstacles = []; hazards = []; chests = []; terminals = [];
+            let terminalPositions = [];
+            currentIslandGroup = new THREE.Group();
+            
+            const base = new THREE.Mesh(new THREE.CylinderGeometry(ISLAND_RADIUS, ISLAND_RADIUS-5, 5, 64), new THREE.MeshToonMaterial({ color: currentBiome.ground }));
+            base.position.y = -2.5; base.receiveShadow = true; base.castShadow = true;
+            const trim = new THREE.Mesh(new THREE.TorusGeometry(ISLAND_RADIUS-0.2, 0.4, 32, 64), new THREE.MeshToonMaterial({ color: currentBiome.decorColor }));
+            trim.rotation.x = Math.PI/2; trim.position.y = -0.2; trim.receiveShadow = true;
+            currentIslandGroup.add(base, trim);
+
+            for (let i = 0; i < 60; i++) {
+                let tx, tz, valid = false;
+                for(let tryN=0; tryN<10; tryN++) {
+                    const angle = Math.random() * Math.PI*2; const r = 10 + Math.random() * (ISLAND_RADIUS - 12);
+                    tx = Math.cos(angle)*r; tz = Math.sin(angle)*r;
+                    if(!checkSpawnCollision(tx, tz, 2.5)) { valid = true; break; }
+                }
+                if(valid) {
+                    if (Math.random() > 0.4) {
+                        let dec = createDecoration(currentBiome.decor, currentBiome.decorColor);
+                        dec.group.position.set(tx, 0, tz); dec.group.rotation.y = Math.random()*Math.PI;
+                        currentIslandGroup.add(dec.group); obstacles.push({x:tx, z:tz, radius:dec.radius});
+                    } else {
+                        const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2+Math.random()), new THREE.MeshToonMaterial({ color: 0x888888 }));
+                        rock.position.set(tx, 0.5, tz); rock.rotation.set(Math.random(),Math.random(),Math.random()); rock.castShadow = true;
+                        currentIslandGroup.add(rock); obstacles.push({x:tx, z:tz, radius: 1.5});
+                    }
+                }
+            }
+
+            const numTraps = Math.min(3 + Math.floor(islandsExplored/2), 10);
+            for(let i=0; i<numTraps; i++) {
+                let tx, tz, valid=false;
+                for(let tryN=0; tryN<10; tryN++) {
+                    const ang = Math.random()*Math.PI*2; const r = 10 + Math.random()*(ISLAND_RADIUS-12);
+                    tx = Math.cos(ang)*r; tz = Math.sin(ang)*r;
+                    if(!checkSpawnCollision(tx, tz, 2.0)) { valid = true; break; }
+                }
+                if(valid) {
+                    let trap = createTrap(Math.random()>0.5 ? 'lava':'spike');
+                    trap.group.position.set(tx, 0, tz); currentIslandGroup.add(trap.group);
+                    hazards.push({x:tx, z:tz, radius:trap.radius, mesh:trap.group});
+                }
+            }
+
+            const numChests = Math.random() > 0.4 ? 2 : 1;
+            for(let i=0; i<numChests; i++) {
+                let tx, tz, valid=false;
+                for(let tryN=0; tryN<10; tryN++) {
+                    const ang = Math.random()*Math.PI*2; const r = 10 + Math.random()*(ISLAND_RADIUS-15);
+                    tx = Math.cos(ang)*r; tz = Math.sin(ang)*r;
+                    if(!checkSpawnCollision(tx, tz, 2.0)) { valid = true; break; }
+                }
+                if(valid) {
+                    let chest = createChest(); chest.group.position.set(tx, 0, tz); chest.group.rotation.y = Math.random()*Math.PI;
+                    currentIslandGroup.add(chest.group);
+                    chests.push({x:tx, z:tz, radius: chest.radius, lid: chest.lidGroup, opened: false});
+                    obstacles.push({x:tx, z:tz, radius: chest.radius});
+                }
+            }
+
+            for(let i = 0; i < totalTerminals; i++) {
+                let tx, tz, valid = false;
+                for(let tryN=0; tryN<50; tryN++) {
+                    const ang = Math.random() * Math.PI*2; 
+                    const r = 15 + Math.random() * (ISLAND_RADIUS - 18); 
+                    tx = Math.cos(ang)*r; tz = Math.sin(ang)*r;
+                    
+                    if(checkSpawnCollision(tx, tz, 3.0)) continue;
+                    
+                    let tooClose = false;
+                    for(let pos of terminalPositions) {
+                        if(Math.sqrt((tx-pos.x)**2 + (tz-pos.z)**2) < 10) { tooClose = true; break; }
+                    }
+                    if(!tooClose) { valid = true; break; }
+                }
+                if(!valid) { 
+                    const ang = (i / totalTerminals) * Math.PI * 2;
+                    tx = Math.cos(ang)*18; tz = Math.sin(ang)*18;
+                }
+                terminalPositions.push({x:tx, z:tz});
+
+                const pedGroup = new THREE.Group(); pedGroup.position.set(tx, 0, tz); 
+                const pedBase = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.8, 0.6, 8), new THREE.MeshToonMaterial({color: 0x444444})); pedBase.position.y = 0.3; pedBase.castShadow = true;
+                const core = new THREE.Mesh(new THREE.OctahedronGeometry(1.2), new THREE.MeshStandardMaterial({color: currentBiome.ped, emissive: currentBiome.ped, emissiveIntensity: 1.5, roughness: 0.1})); core.position.y = 3; core.name = "glowingCore";
+                const light = new THREE.PointLight(currentBiome.ped, 2, 20); light.position.y = 3; light.name = "light";
+                pedGroup.add(pedBase, core, light);
+                pedGroup.userData = { active: true, index: i };
+                terminals.push(pedGroup); currentIslandGroup.add(pedGroup);
+                obstacles.push({x:tx, z:tz, radius: 2.0});
+            }
+
+            exitGateMesh = new THREE.Group();
+            exitGateMesh.position.set(exitDir.dx * (ISLAND_RADIUS-2), 0, exitDir.dz * (ISLAND_RADIUS-2));
+            exitGateMesh.rotation.y = Math.atan2(exitDir.dx, exitDir.dz);
+            const pillarGeo = new THREE.BoxGeometry(1.5, 6, 1.5); const pillarMat = new THREE.MeshToonMaterial({color: 0x555555});
+            const p1 = new THREE.Mesh(pillarGeo, pillarMat); p1.position.set(-3, 3, 0); p1.castShadow = true;
+            const p2 = new THREE.Mesh(pillarGeo, pillarMat); p2.position.set(3, 3, 0); p2.castShadow = true;
+            const top = new THREE.Mesh(new THREE.BoxGeometry(7.5, 1.5, 1.5), pillarMat); top.position.set(0, 6.75, 0); top.castShadow = true;
+            const portalLight = new THREE.PointLight(0x00ff00, 0, 20); portalLight.position.set(0, 3, 0); portalLight.name = "gateLight";
+            exitGateMesh.add(p1, p2, top, portalLight); currentIslandGroup.add(exitGateMesh);
+            
+            bridgeMesh = new THREE.Mesh(new THREE.BoxGeometry(4, 0.8, 20), new THREE.MeshToonMaterial({color: 0x8D6E63}));
+            bridgeMesh.position.set(exitDir.dx * (ISLAND_RADIUS+10), -0.4, exitDir.dz * (ISLAND_RADIUS+10));
+            bridgeMesh.rotation.y = Math.atan2(exitDir.dx, exitDir.dz);
+            bridgeMesh.visible = false; bridgeMesh.castShadow = true; currentIslandGroup.add(bridgeMesh);
+
+            scene.add(currentIslandGroup);
+
+            player.position.set(0, 10, 0); 
+            playerVel = { x: 0, z: 0 }; playerModel.position.y = 0; playerModel.rotation.z = 0;
+            camera.position.set(0, 20, 25); camera.lookAt(player.position);
+            document.getElementById('bridgeReadyHint').classList.add('hidden');
+        }
+
+        function buildBridge() {
+            playSound('bridge');
+            exitGateMesh.getObjectByName("gateLight").intensity = 3;
+            document.getElementById('exitDirText').innerText = `จงเดินไปที่ประตูทางออก ${exitDir.name}`;
+            document.getElementById('bridgeReadyHint').classList.remove('hidden');
+
+            bridgeMesh.visible = true;
+            bridgeMesh.position.set(exitDir.dx * ISLAND_RADIUS, -0.4, exitDir.dz * ISLAND_RADIUS);
+            bridgeMesh.scale.z = 0.1;
+            
+            let progress = 0;
+            const anim = setInterval(() => {
+                progress += 0.02; bridgeMesh.scale.z = progress * 10;
+                let offset = (bridgeMesh.geometry.parameters.depth * bridgeMesh.scale.z / 2);
+                bridgeMesh.position.x = exitDir.dx * (ISLAND_RADIUS + offset);
+                bridgeMesh.position.z = exitDir.dz * (ISLAND_RADIUS + offset);
+                if (progress >= 1) clearInterval(anim);
+            }, 30);
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toastMsg');
+            t.innerText = msg; t.style.opacity = '1';
+            setTimeout(() => { t.style.opacity = '0'; }, 2500);
+        }
+
+        function takeDamage(knockSource = null) {
+            if(isInvincible) return;
+            health--; updateHealthUI(); playSound('hurt');
+            if (health <= 0) { showGameOver(); return; }
+            
+            isInvincible = true;
+            let blink = setInterval(() => { playerModel.visible = !playerModel.visible; }, 100);
+            setTimeout(() => { clearInterval(blink); playerModel.visible = true; isInvincible = false; }, 2000);
+
+            if(knockSource === 'fall') {
+                player.position.set(0,10,0); playerVel = {x:0, z:0}; 
+            } else if(knockSource) {
+                let dx = player.position.x - knockSource.x; let dz = player.position.z - knockSource.z;
+                let dist = Math.sqrt(dx*dx + dz*dz) || 1;
+                playerVel.x = (dx/dist) * 0.4; playerVel.z = (dz/dist) * 0.4;
+            }
+        }
+
+        function updateGame() {
+            if (isPaused) return;
+
+            const phys = currentBiome.physics;
+            let inputX = joyVector.x; let inputZ = joyVector.y;
+            if (keys['w'] || keys['arrowup']) inputZ -= 1;
+            if (keys['s'] || keys['arrowdown']) inputZ += 1;
+            if (keys['a'] || keys['arrowleft']) inputX -= 1;
+            if (keys['d'] || keys['arrowright']) inputX += 1;
+
+            const inputMag = Math.sqrt(inputX*inputX + inputZ*inputZ);
+            if (inputMag > 1) { inputX /= inputMag; inputZ /= inputMag; }
+
+            if(player.position.y > 0) {
+                player.position.y -= 0.6; if(player.position.y < 0) player.position.y = 0;
+            }
+
+            playerVel.x += inputX * phys.accel; playerVel.z += inputZ * phys.accel;
+            playerVel.x *= phys.friction; playerVel.z *= phys.friction;
+            const speedSq = playerVel.x*playerVel.x + playerVel.z*playerVel.z;
+            if (speedSq > phys.maxSpeed*phys.maxSpeed) {
+                const mag = Math.sqrt(speedSq); playerVel.x = (playerVel.x/mag)*phys.maxSpeed; playerVel.z = (playerVel.z/mag)*phys.maxSpeed;
+            }
+
+            let tx = player.position.x + playerVel.x;
+            let tz = player.position.z + playerVel.z;
+
+            // SLIDING COLLISION
+            for(let o of obstacles) {
+                let dx = tx - o.x; let dz = tz - o.z; let dist = Math.sqrt(dx*dx + dz*dz);
+                if(dist < PLAYER_RADIUS + o.radius) {
+                    let overlap = (PLAYER_RADIUS + o.radius) - dist;
+                    tx += (dx/dist) * overlap; tz += (dz/dist) * overlap;
+                    playerVel.x *= 0.5; playerVel.z *= 0.5; 
+                }
+            }
+            player.position.x = tx; player.position.z = tz;
+
+            // FALLING EDGE CHECK
+            let distFromCenter = Math.sqrt(tx*tx + tz*tz);
+            if(distFromCenter > ISLAND_RADIUS) {
+                let dot = tx * exitDir.dx + tz * exitDir.dz;
+                let perp = tx * exitDir.dz - tz * exitDir.dx;
+                let onBridge = bridgeMesh && bridgeMesh.visible && dot > ISLAND_RADIUS - 2 && dot < ISLAND_RADIUS + 20 && Math.abs(perp) < 2.5;
+                
+                if(onBridge) {
+                    if (dot > ISLAND_RADIUS + 15) {
+                        isPaused = true; islandsExplored++;
+                        document.getElementById('islandCount').innerText = islandsExplored;
+                        generateLevel(); setTimeout(() => { isPaused = false; }, 1000);
+                    }
+                } else if(distFromCenter > ISLAND_RADIUS + 0.8) {
+                    takeDamage('fall'); 
+                }
+            }
+
+            // HAZARDS DAMAGE CHECK
+            if(!isInvincible) {
+                for(let h of hazards) {
+                    if(Math.sqrt((tx-h.x)**2 + (tz-h.z)**2) < PLAYER_RADIUS + h.radius - 0.5) {
+                        takeDamage(h); break;
+                    }
+                }
+            }
+
+            // CHESTS & LOOT BALANCE
+            chests.forEach(c => {
+                if(!c.opened && Math.sqrt((tx-c.x)**2 + (tz-c.z)**2) < 2.5) {
+                    c.opened = true; playSound('chest');
+                    let anim = 0; let openInt = setInterval(()=>{ anim+=0.1; c.lid.rotation.x = -anim; if(anim>=Math.PI/2) clearInterval(openInt); }, 20);
+                    
+                    let dropPotion = false;
+                    if (inventory.magnifiers >= MAX_MAGNIFIERS) dropPotion = true;
+                    else if (Math.random() < 0.8) dropPotion = true;
+
+                    if (dropPotion) {
+                        if(health < 5) { health++; updateHealthUI(); showToast("💖 ได้รับน้ำยาฟื้นฟูหัวใจ +1!"); }
+                        else { showToast("💖 เลือดเต็มแล้ว! (พบน้ำยาฟื้นฟู)"); }
+                    } else {
+                        inventory.magnifiers++; updateInventoryUI(); showToast(`🔎 ได้รับแว่นขยายข้ามด่าน (${inventory.magnifiers}/${MAX_MAGNIFIERS})`);
+                    }
+                }
+            });
+
+            // ANIMATION
+            const currentSpeed = Math.sqrt(playerVel.x*playerVel.x + playerVel.z*playerVel.z);
+            if (currentSpeed > 0.01) {
+                player.rotation.y = Math.atan2(playerVel.x, playerVel.z);
+                const time = Date.now() * 0.015;
+                playerModel.position.y = Math.abs(Math.sin(time)) * phys.bob;
+                playerModel.rotation.z = Math.sin(time * 0.5) * 0.1;
+            } else {
+                playerModel.position.y = THREE.MathUtils.lerp(playerModel.position.y, 0, 0.2);
+                playerModel.rotation.z = THREE.MathUtils.lerp(playerModel.rotation.z, 0, 0.2);
+            }
+
+            camera.position.lerp(new THREE.Vector3(player.position.x, 20, player.position.z + 24), 0.08);
+            camera.lookAt(player.position);
+
+            // TERMINAL TRIGGER
+            terminals.forEach((term, index) => {
+                if (term.userData.active) {
+                    term.getObjectByName("glowingCore").rotation.y += 0.02;
+                    if (player.position.distanceTo(term.position) < 3.0) triggerPuzzle(index);
+                }
+            });
+        }
+
+        function animate() { requestAnimationFrame(animate); updateGame(); renderer.render(scene, camera); }
+
+        function updateProgressUI() {
+            document.getElementById('terminalProgress').innerText = `${terminalsSolved} / ${totalTerminals}`;
+            document.getElementById('terminalProgress').className = terminalsSolved >= totalTerminals ? 'text-green-400 font-black' : 'text-yellow-400 font-black';
+        }
+        function updateInventoryUI() {
+            document.getElementById('magnifierCount').innerText = `${inventory.magnifiers} / ${MAX_MAGNIFIERS}`;
+        }
+
+        function triggerPuzzle(index) {
+            isPaused = true; keys = {}; resetJoystick(); 
+            let pushVec = new THREE.Vector3().subVectors(player.position, terminals[index].position).normalize();
+            player.position.addScaledVector(pushVec, 2.5); playerVel = {x: 0, z: 0};
+            activeTerminalIndex = index;
+            
+            currentPuzzleWrong = false;
+            document.getElementById('helperButtons').classList.add('hidden');
+            document.getElementById('hintText').classList.add('hidden');
+            
+            generateMathPuzzle(); document.getElementById('puzzleModal').style.display = 'flex';
+        }
+
+        function updateHelperButtons() {
+            const helperGroup = document.getElementById('helperButtons');
+            const btnHint = document.getElementById('btnHint');
+            const btnAuto = document.getElementById('btnAutoSolve');
+
+            if (currentPuzzleWrong) {
+                helperGroup.classList.remove('hidden');
+                
+                if (globalHintQuota > 0) {
+                    btnHint.classList.remove('hidden');
+                    btnHint.innerText = `💡 ขอคำใบ้ (เหลือ ${globalHintQuota} ครั้ง)`;
+                } else {
+                    btnHint.classList.add('hidden');
+                }
+
+                if (inventory.magnifiers > 0) {
+                    btnAuto.classList.remove('hidden');
+                } else {
+                    btnAuto.classList.add('hidden');
+                }
+            }
+        }
+
+        function generateMathPuzzle() {
+            const w = Math.floor(Math.random() * 12) + 1; // สุ่มจำนวนเต็ม 1 ถึง 12
+            const d = Math.floor(Math.random() * 11) + 2; // สุ่มตัวส่วน 2 ถึง 12 (แม่สูตรคูณ 2-12)
+            const n = Math.floor(Math.random() * (d - 1)) + 1; // สุ่มตัวเศษ 1 ถึง (ตัวส่วน - 1)
+            const impN = (w * d) + n; const isToImproper = Math.random() > 0.5;
+            const contentDiv = document.getElementById('puzzleContent'); const hintDiv = document.getElementById('hintText');
+            
+            if (isToImproper) {
+                currentPuzzle = { type: 'toImproper', n: impN, d: d };
+                document.getElementById('puzzleInstruction').innerText = "แปลง จำนวนคละ ให้เป็น เศษเกิน";
+                contentDiv.innerHTML = `<div class="flex items-center text-blue-600"><span class="text-5xl md:text-7xl mr-1">${w}</span><div class="fraction text-3xl md:text-5xl"><span class="fraction-line">${n}</span><span>${d}</span></div></div><span class="mx-2 text-gray-400">=</span><div class="flex items-center text-orange-600"><div class="fraction"><input type="number" inputmode="numeric" id="ansN" class="input-box mb-1" autocomplete="off" placeholder="?"><div class="h-[4px] w-full bg-gray-500 mb-1 rounded"></div><input type="number" id="ansD" class="input-box bg-gray-200 text-gray-500" value="${d}" disabled></div></div>`;
+                hintDiv.innerHTML = `🍕 <strong>กังหันลม:</strong> เอาส่วน(${d}) × หน้า(${w}) = ${d*w} แล้วบวกบน(${n}) = ?`;
+            } else {
+                currentPuzzle = { type: 'toMixed', w: w, n: n, d: d };
+                document.getElementById('puzzleInstruction').innerText = "แปลง เศษเกิน ให้เป็น จำนวนคละ";
+                contentDiv.innerHTML = `<div class="flex items-center text-orange-600"><div class="fraction text-3xl md:text-5xl"><span class="fraction-line">${impN}</span><span>${d}</span></div></div><span class="mx-2 text-gray-400">=</span><div class="flex items-center text-blue-600"><input type="number" inputmode="numeric" id="ansW" class="input-box mr-2 h-[50px] md:h-[75px]" autocomplete="off" placeholder="?"><div class="fraction"><input type="number" inputmode="numeric" id="ansN" class="input-box mb-1" autocomplete="off" placeholder="?"><div class="h-[4px] w-full bg-gray-500 mb-1 rounded"></div><input type="number" id="ansD" class="input-box bg-gray-200 text-gray-500" value="${d}" disabled></div></div>`;
+                hintDiv.innerHTML = `🍕 <strong>หารยาวหาบอส:</strong> เอา ${impN} ÷ ${d} ... ได้พี่เบิ้ม(เต็ม)เท่าไหร่? เหลือน้องจิ๋ว(เศษ)เท่าไหร่?`;
+            }
+        }
+
+        function checkAnswer(forceCorrect = false) {
+            let isCorrect = forceCorrect;
+            if(!forceCorrect) {
+                if (currentPuzzle.type === 'toImproper') {
+                    if (parseInt(document.getElementById('ansN').value) === currentPuzzle.n) isCorrect = true;
+                } else {
+                    if (parseInt(document.getElementById('ansW').value) === currentPuzzle.w && parseInt(document.getElementById('ansN').value) === currentPuzzle.n) isCorrect = true;
+                }
+            }
+
+            if (isCorrect) {
+                playSound('success'); stats.correct++; terminalsSolved++; updateProgressUI();
+                const term = terminals[activeTerminalIndex]; term.userData.active = false;
+                term.getObjectByName("glowingCore").material.color.setHex(0x555555); term.getObjectByName("glowingCore").material.emissive.setHex(0x222222);
+                term.getObjectByName("light").intensity = 0;
+                document.getElementById('puzzleModal').style.display = 'none';
+                if (terminalsSolved >= totalTerminals) buildBridge(); 
+                isPaused = false;
+            } else {
+                playSound('wrong'); stats.wrong++; takeDamage();
+                
+                currentPuzzleWrong = true;
+                updateHelperButtons();
+
+                const box = document.getElementById('puzzleBox'); box.classList.add('translate-x-3', 'bg-red-50', 'border-red-400');
+                setTimeout(() => box.classList.remove('translate-x-3', 'bg-red-50', 'border-red-400'), 400);
+                if(health > 0) {
+                    const inputs = document.querySelectorAll('.input-box:not([disabled])'); inputs.forEach(i => i.value = '');
+                } else { document.getElementById('puzzleModal').style.display = 'none'; }
+            }
+        }
+
+        function useMagnifier() {
+            if(inventory.magnifiers > 0) {
+                inventory.magnifiers--; updateInventoryUI(); checkAnswer(true);
+            }
+        }
+
+        function toggleHint() { 
+            if(globalHintQuota > 0) {
+                globalHintQuota--;
+                document.getElementById('hintText').classList.remove('hidden');
+                document.getElementById('btnHint').classList.add('hidden'); 
+            }
+        }
+
+        function updateHealthUI() { document.getElementById('healthDisplay').innerText = '❤️'.repeat(health) + '🖤'.repeat(5 - health); }
+
+        function showGameOver() {
+            isPaused = true; 
+            document.getElementById('rcIslands').innerText = islandsExplored;
+            document.getElementById('rcCorrect').innerText = stats.correct; 
+            document.getElementById('rcWrong').innerText = stats.wrong;
+            
+            // Assign Title based on islands explored
+            let titleIndex = Math.max(0, Math.min(islandsExplored - 1, 49));
+            if (islandsExplored === 0) titleIndex = 0; // fallback if died on island 1
+            document.getElementById('rcTitle').innerText = TITLES[titleIndex];
+
+            document.getElementById('gameOverModal').style.display = 'flex';
+        }
+
+        function startGame() {
+            initAudio(); resetIdleTimer(); document.getElementById('startScreen').style.opacity = '0';
+            setTimeout(() => { document.getElementById('startScreen').style.display = 'none'; isPaused = false; }, 500);
+        }
+
+        document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && document.getElementById('puzzleModal').style.display === 'flex') checkAnswer(); });
+        window.onload = init3D;
+    </script>
+</body>
+</html>
